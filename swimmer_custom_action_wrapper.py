@@ -28,66 +28,90 @@ class SinusoidalFunc:
             return self.offset_odd+self.amplitude_odd*np.sin(theta+ self.delta)
         
 
+def sinusoid(params,t,n_joints):
+    '''
+
+    INPUTS:
+    t is a scalar time
+    n_joints is the nubmer of joints, and defines the dimensionality of the output
+    '''
+
+    offset, amp, dtheta_dn, dtheta_dt = params
+
+    n = np.arange(n_joints) / (n_joints - 1)
+
+    return offset + amp*np.sin(dtheta_dn*n + dtheta_dt*t)
+        
+
 class PIDController:
-    def __init__(self, Kp, Kd, Ki =0.0):
+    def __init__(self, Kp, Kd, Ki =0.0, dt = .05):
         self.Kp = Kp
         self.Ki=Ki
         self.Kd = Kd
         self.integral = 0.0
         self.prev_error = 0.0
+        self.dt = dt
 
     def reset(self):
         self.integral = 0.0
         self.prev_error = 0.0
 
-    def compute(self,desired_angle, actual_angle, dt ):
+    def __call__(self,desired_angle, actual_angle):
         error = desired_angle-actual_angle
-        self.integral+=error*dt
-        derivative = (error - self.prev_error)/dt
+        self.integral+=error*self.dt
+        derivative = (error - self.prev_error)/self.dt
         self.prev_error=error
 
-        return self.Kp*error + self.Ki*self.integral + self.Kd*derivative
+        return self.Kp*error + self.Ki*self.integral + self.Kd*derivative  # this is correct, assuming the joint torque INCREASES the angle
     
 class SwimmerCustomActionWrapper:
     def __init__(self, env, dt = 0.05):
         self.env = env 
         self.dt = dt
-        self.t =0.0
+        self.t = 0.0
 
         self.num_joints = self.env.action_space.shape[0]
-        self.sinusoidal_func = SinusoidalFunc(self.num_joints)
-        self.pid_controllers =[PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
+        # self.sinusoidal_func = SinusoidalFunc(self.num_joints)
+        # self.pid_controllers = [PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
+        self.pid_controller = PIDController(kp=1.,kd=1.,ki=0.,dt=self.dt)
 
 
     def reset(self):
         self.t = 0.0
         timestep = self.env.reset()
-        for pid in self.pid_controllers:
-            pid.reset()
+        self.pid_controller.reset()
+        # for pid in self.pid_controllers:
+        #     pid.reset()
         return timestep
     
     def get_joint_angles(self):
         return self.env._env.physics.joints()
-    def step(self, params): #params = [offset_even, amplitude_even, offset_odd, amplitude_odd, dtheta_dn, dtheta_dt, delta]
-        self.sinusoidal_func.set_params(params)
+    
+    def step(self, action): #params = [offset_even, amplitude_even, offset_odd, amplitude_odd, dtheta_dn, dtheta_dt, delta]
+        # self.sinusoidal_func.set_params(params)
+        desired_angles = sinusoid(action,self.t,self.num_joints)
+
         current_angles = self.get_joint_angles()
-        torques = []
+
+        torques = self.pid_controller(desired_angles,current_angles)
+
+        # torques = []
         
-        for n in range(self.num_joints):
-            desired = self.sinusoidal_func.get_desired_angle(n, self.t)
-            torque = self.pid_controllers[n].compute(desired, current_angles[n], self.dt)
-            torques.append(torque)
+        # for n in range(self.num_joints):
+        #     desired = self.sinusoidal_func.get_desired_angle(n, self.t)
+        #     torque = self.pid_controllers[n].compute(desired, current_angles[n], self.dt)
+        #     torques.append(torque)
 
 
         """print(f"Torque Shape {np.array(torques).shape}")
         print(self.env.action_space.shape)
 """
-        timestep = self.env.step(np.array(torques))
-        self.t +=self.dt
+        timestep = self.env.step(torques)
+        self.t += self.dt
         obs, reward, done, info = timestep
 
         print(info)
-        return obs, reward, done
+        return obs, reward, done, info
     
 
 n_links = 12
@@ -99,7 +123,7 @@ custom_env = SwimmerCustomActionWrapper(gym_env)
 
 obs = custom_env.reset()
 for _ in range(10):
-    params = np.random.uniform(-1,1,size = 7)
+    params = np.random.uniform(-1,1,size = 4)
     obs, reward, done = (custom_env.step(params=params))
     """print(f"Obs is {obs}")
 
