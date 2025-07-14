@@ -143,4 +143,119 @@ class FrameSkipWrapper(gym.Wrapper):
 
     def reset(self, **kwargs):
         return self.env.reset(**kwargs)
+
+def sinusoid(params,t,n_joints):
+    '''
+
+    INPUTS:
+    t is a scalar time
+    n_joints is the nubmer of joints, and defines the dimensionality of the output
+    '''
+    offset, amp, dtheta_dn, dtheta_dt = params
+
+    n = np.arange(n_joints) / (n_joints - 1)
+
+    return offset + amp*np.sin(dtheta_dn*n + dtheta_dt*t)
+        
+
+class PIDController:
+    def __init__(self, kp, ki, kd, dt = .05):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.integral = 0.0
+        self.prev_error = 0.0
+        self.dt = dt
+
+    def reset(self):
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def update_integrator(self,error,output):
+        # ((x > max_output) | (x < min_output)).astype(np.float64)
+        if self.min_output is not None and self.max_output is not None:
+            integrator_mask = ((output > self.max_output) | (output < self.min_output)).astype(np.float64)
+
+            return self.integral + integrator_mask*error*self.dt
+
+        return self.integral + error*self.dt
+
+    def __call__(self,desired_angle, actual_angle):
+        error = desired_angle-actual_angle
+        # print('desired angle ', desired_angle)
+        # print(f"actual angle {actual_angle}")
+        #print(f"Config oif PID COntroller {self.kp, self.kd, self.ki}")
+        
+        derivative = (error - self.prev_error)/self.dt
+        self.prev_error=error
+
+        output = self.kp*error + self.ki*self.integral + self.kd*derivative  # this is correct, assuming the joint torque INCREASES the angle
+
+        self.integral = self.update_integrator(error,output)
+        
+        
+        
+        
+        return output
+
+
+
+
+
     
+class SwimmerCustomActionWrapper:
+    def __init__(self, env, action_scale=np.ones(4), dt = 0.05):
+        self.env = env 
+        self.dt = dt
+        self.t = 0.0
+
+        self.num_joints = self.env.action_space.shape[0]
+        # self.sinusoidal_func = SinusoidalFunc(self.num_joints)
+        # self.pid_controllers = [PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
+        self.pid_controller = PIDController(kp=1.,kd=0.,ki=.5,dt=self.dt)
+        # self.action_space = self.env.action_space
+        
+        a_dim = 4  # 4-dimensional actions for offset, amplitude, dtheta/dn, dtheta/dt
+        self.action_scale = action_scale  # this is for if we want actions of +/-1 to map to larger/smaller sinusoid parameters
+        assert self.action_scale.shape[0] == a_dim
+
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(a_dim,),
+            dtype=np.float32
+        )
+        self.observation_space = self.env.observation_space
+        self.reward_range = self.env.reward_range
+        self.metadata = self.env.metadata
+
+
+    def reset(self):
+        self.t = 0.0
+        timestep = self.env.reset()
+        self.pid_controller.reset()
+        # for pid in self.pid_controllers:
+        #     pid.reset()
+        return timestep
+   
+    def get_joint_angles(self):
+        return self.env._env.physics.joints()
+    
+    def step(self, action):#action =[offset, amp, dtheta_dn, dtheta_dt]
+        
+        action = self.action_scale * action
+
+        desired_angles = sinusoid(action,self.t,self.num_joints)
+       
+        current_angles = self.get_joint_angles()
+        
+        torques = self.pid_controller(desired_angles,current_angles)
+        torques = np.clip(torques,-1,1)
+        
+
+        obs, reward, done, info = self.env.step(torques)
+        self.t += self.dt
+        
+        return obs, reward, done, info
+    
+
