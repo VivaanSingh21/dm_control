@@ -25,6 +25,7 @@ from dm_control.utils import containers
 from dm_control.utils import rewards
 from lxml import etree
 import numpy as np
+import ipdb
 
 _DEFAULT_TIME_LIMIT = 30
 _CONTROL_TIMESTEP = .03  # (Seconds)
@@ -64,6 +65,8 @@ def swimmer15(time_limit=_DEFAULT_TIME_LIMIT, random=None,
 def swimmer(n_links=3, time_limit=_DEFAULT_TIME_LIMIT,
             random=None, environment_kwargs=None):
   """Returns a swimmer with n links."""
+  print("Using custom_swimmer")
+  # ipdb.set_trace()
   return _make_swimmer(n_links, time_limit, random=random,
                        environment_kwargs=environment_kwargs)
 
@@ -84,7 +87,10 @@ def _make_model(n_bodies):
   """Generates an xml string defining a swimmer with `n_bodies` bodies."""
   if n_bodies < 3:
     raise ValueError('At least 3 bodies required. Received {}'.format(n_bodies))
-  mjcf = etree.fromstring(common.read_model('swimmer.xml'))
+  # mjcf = etree.fromstring(common.read_model('swimmer.xml'))
+  swimmer_xml_path = "/home/biorobotics/dm_control_project/dm_control/dm_control/suite/swimmer.xml"
+  with open(swimmer_xml_path, "rb") as f:
+    mjcf = etree.fromstring(f.read())
   head_body = mjcf.find('./worldbody/body')
   actuator = etree.SubElement(mjcf, 'actuator')
   sensor = etree.SubElement(mjcf, 'sensor')
