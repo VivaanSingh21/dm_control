@@ -110,9 +110,9 @@ class SegmentActionWrapper(gym.Wrapper):
         return np.array(full_action, dtype=np.float32)
 
     def step(self, action):
-        print('action: ', action)
+        #print('action: ', action)
         full_action = self.get_low_level_actions(action)
-        print('full_action: ', full_action)
+        #print('full_action: ', full_action)
         return self.env.step(full_action)
 
     def reset(self, **kwargs):
@@ -207,8 +207,9 @@ class PIDController:
 
 
     
-class SwimmerCustomActionWrapper:
+class SwimmerCustomActionWrapper(gym.Wrapper):
     def __init__(self, env, action_scale=np.array([1.,1.,np.pi,np.pi/.05]), dt = 0.05):
+        super().__init__(env) #We are having to make this class a proper subclass of gym.Wrapper to enable compatibality with stable baseline 3
         self.env = env 
         self.dt = dt
         self.t = 0.0
@@ -260,7 +261,7 @@ class SwimmerCustomActionWrapper:
         # print(f"Current angles: {current_angles}")
         # ipdb.set_trace()
         torques = self.pid_controller(desired_angles,current_angles)
-        print(f"Torques: {torques}")
+        #print(f"Torques: {torques}")
         # print(torques)
         torques = np.clip(torques,-1,1)
         
@@ -301,8 +302,9 @@ class SwimmerCustomActionWrapper:
 
 
     
-class SwimmerCustomActionWrapperTorque:
-    def __init__(self, env, action_scale=np.array([1.,1.,np.pi,np.pi/.05]), dt = 0.05):
+class SwimmerCustomActionWrapperTorque(gym.Wrapper):
+    def __init__(self, env, action_scale=np.array([.3,1.,.5*np.pi,.3*np.pi/.05]), dt = 0.05):
+        super().__init__(env) #We are having to make this class a proper subclass of gym.Wrapper to enable compatibality with stable baseline 3
         self.env = env 
         self.dt = dt
         self.t = 0.0
