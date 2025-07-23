@@ -1,7 +1,7 @@
 import gym
 from gym import spaces
 import numpy as np
-
+import ipdb
 class DMCWrapper(gym.Env):
     def __init__(self, dmc_env):
         self._env = dmc_env
@@ -110,9 +110,9 @@ class SegmentActionWrapper(gym.Wrapper):
         return np.array(full_action, dtype=np.float32)
 
     def step(self, action):
-        print('action: ', action)
+        #print('action: ', action)
         full_action = self.get_low_level_actions(action)
-        print('full_action: ', full_action)
+        #print('full_action: ', full_action)
         return self.env.step(full_action)
 
     def reset(self, **kwargs):
@@ -153,19 +153,22 @@ def sinusoid(params,t,n_joints):
     '''
     offset, amp, dtheta_dn, dtheta_dt = params
 
-    n = np.arange(n_joints) / (n_joints - 1)
+    n = np.arange(n_joints) # / (n_joints - 1)
 
     return offset + amp*np.sin(dtheta_dn*n + dtheta_dt*t)
+   
         
 
 class PIDController:
-    def __init__(self, kp, ki, kd, dt = .05):
+    def __init__(self, kp, ki, kd, min_output =-1, max_output = 1, dt = .05):
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.integral = 0.0
         self.prev_error = 0.0
         self.dt = dt
+        self.min_output = min_output
+        self.max_output = max_output
 
     def reset(self):
         self.integral = 0.0
@@ -182,6 +185,7 @@ class PIDController:
 
     def __call__(self,desired_angle, actual_angle):
         error = desired_angle-actual_angle
+        # print(f"error is {error}")
         # print('desired angle ', desired_angle)
         # print(f"actual angle {actual_angle}")
         #print(f"Config oif PID COntroller {self.kp, self.kd, self.ki}")
@@ -203,8 +207,9 @@ class PIDController:
 
 
     
-class SwimmerCustomActionWrapper:
-    def __init__(self, env, action_scale=np.ones(4), dt = 0.05):
+class SwimmerCustomActionWrapper(gym.Wrapper):
+    def __init__(self, env, action_scale=np.array([1.,1.,np.pi,np.pi/.05]), dt = 0.05):
+        super().__init__(env) #We are having to make this class a proper subclass of gym.Wrapper to enable compatibality with stable baseline 3
         self.env = env 
         self.dt = dt
         self.t = 0.0
@@ -212,7 +217,7 @@ class SwimmerCustomActionWrapper:
         self.num_joints = self.env.action_space.shape[0]
         # self.sinusoidal_func = SinusoidalFunc(self.num_joints)
         # self.pid_controllers = [PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
-        self.pid_controller = PIDController(kp=1.,kd=0.,ki=.5,dt=self.dt)
+        self.pid_controller = PIDController(kp=1., ki=.5, kd= 0,dt=self.dt)
         # self.action_space = self.env.action_space
         
         a_dim = 4  # 4-dimensional actions for offset, amplitude, dtheta/dn, dtheta/dt
@@ -230,6 +235,10 @@ class SwimmerCustomActionWrapper:
         self.metadata = self.env.metadata
 
 
+        self.desired_angles = []
+        self.torques = []
+        self.current_angles = []
+
     def reset(self):
         self.t = 0.0
         timestep = self.env.reset()
@@ -243,20 +252,123 @@ class SwimmerCustomActionWrapper:
     
     def step(self, action):#action =[offset, amp, dtheta_dn, dtheta_dt]
         
+        "Regular  funcion with high level action entering sinusoid to yield desired angle"
         action = self.action_scale * action
 
         desired_angles = sinusoid(action,self.t,self.num_joints)
-       
+        # print(f"Desired Angles:{desired_angles}")
         current_angles = self.get_joint_angles()
-        
+        # print(f"Current angles: {current_angles}")
+        # ipdb.set_trace()
         torques = self.pid_controller(desired_angles,current_angles)
+        #print(f"Torques: {torques}")
+        # print(torques)
         torques = np.clip(torques,-1,1)
         
 
         obs, reward, done, info = self.env.step(torques)
         self.t += self.dt
+
+        self.desired_angles.append(desired_angles)
+        self.current_angles.append(current_angles)
+        self.torques.append(torques)
         
+        info = {'desired_angles':np.stack(self.desired_angles),
+                'current_angles':np.stack(self.current_angles),
+                'torques':np.stack(self.torques)}
         return obs, reward, done, info
+
+        "Test  function with high-level action entering sinusoid to yield torque"
+        # action = self.action_scale * action
+
+        # torques = sinusoid(action,self.t,self.num_joints)
+       
+        # print(f"Torques: {torques}")
+        # # print(torques)
+        # torques = np.clip(torques,-1,1)
+        
+
+        # obs, reward, done, info = self.env.step(torques)
+        # self.t += self.dt
+
+        
+        # self.torques.append(torques)
+        
+        # info = {
+        #         'torques':np.stack(self.torques)}
+        # return obs, reward, done, info
+
+    
+
+
+    
+class SwimmerCustomActionWrapperTorque(gym.Wrapper):
+    def __init__(self, env, action_scale=np.array([.3,1.,.5*np.pi,.3*np.pi/.05]), dt = 0.05):
+        super().__init__(env) #We are having to make this class a proper subclass of gym.Wrapper to enable compatibality with stable baseline 3
+        self.env = env 
+        self.dt = dt
+        self.t = 0.0
+
+        self.num_joints = self.env.action_space.shape[0]
+        # self.sinusoidal_func = SinusoidalFunc(self.num_joints)
+        # self.pid_controllers = [PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
+        
+        # self.action_space = self.env.action_space
+        
+        a_dim = 4  # 4-dimensional actions for offset, amplitude, dtheta/dn, dtheta/dt
+        self.action_scale = action_scale  # this is for if we want actions of +/-1 to map to larger/smaller sinusoid parameters
+        assert self.action_scale.shape[0] == a_dim
+
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(a_dim,),
+            dtype=np.float32
+        )
+        self.observation_space = self.env.observation_space
+        self.reward_range = self.env.reward_range
+        self.metadata = self.env.metadata
+
+
+        self.desired_angles = []
+        self.torques = []
+        self.current_angles = []
+
+    def reset(self):
+        self.t = 0.0
+        timestep = self.env.reset()
+       
+        # for pid in self.pid_controllers:
+        #     pid.reset()
+        return timestep
+   
+    def get_joint_angles(self):
+        return self.env._env.physics.joints()
+    
+    def step(self, action):#action =[offset, amp, dtheta_dn, dtheta_dt]
+        
+
+
+        "Test  function with high-level action entering sinusoid to yield torque"
+        action = self.action_scale * action
+
+        torques = sinusoid(action,self.t,self.num_joints)
+       
+        # print(f"Torques: {torques}")
+        # print(torques)
+        torques = np.clip(torques,-1,1)
+        
+
+        obs, reward, done, info = self.env.step(torques)
+        self.t += self.dt
+
+        
+        self.torques.append(torques)
+        
+        info = {
+                'torques':np.stack(self.torques)}
+        return obs, reward, done, info
+
     
 
 class SwimmerCustomActionWrapperTorque:
