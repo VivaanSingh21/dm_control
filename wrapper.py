@@ -369,76 +369,52 @@ class SwimmerCustomActionWrapperTorque(gym.Wrapper):
                 'torques':np.stack(self.torques)}
         return obs, reward, done, info
 
+
+
+
+forward_A = 1
+backward_A = .25
+
+gates = [
+(0,forward_A,1,-1), #Forward
+(.5,forward_A,1,-1), #Forward Right Tight
+(.2,forward_A,1,-1), #Forward Right Loose
+(-0.5,forward_A,1,-1), #Forward Left Tight
+(-0.2,forward_A,1,-1), #Forward Left Loose
+(0,backward_A,1,1), #Backward
+(-0.5,backward_A,1,1), #Backward Right Tight
+(-0.2,backward_A,1,1), #Backward Right Loose
+(0.5,backward_A,1,1), #Backward Left Tight
+(0.2,backward_A,1,1) #Backward Left Loose
+]
+
+class OneHotActionSpace:
+    def __init__(self,a_dim):
+        self.a_dim = a_dim
+        self.shape = (self.a_dim,)
+    def sample(self):
+        index = np.random.randint(self.a_dim)
+        one_hot = np.zeros(self.a_dim)
+        one_hot[index]=1
+        return one_hot
     
+class GateWrapper(gym.Wrapper):
+    def __init__(self, env, gate_encoding=gates):
+        super().__init__(env)
 
-class SwimmerCustomActionWrapperTorque:
-    def __init__(self, env, action_scale=np.array([1.,1.,np.pi,np.pi/.05]), dt = 0.05):
-        self.env = env 
-        self.dt = dt
-        self.t = 0.0
+        self.env = env
+        self.gate_encoding = gate_encoding
+        a_dim = len(gate_encoding) #1-hot encoded vector for our 10 gates
+       
+        # self.action_space = gym.spaces.MultiBinary(a_dim)
+        self.action_space = OneHotActionSpace(a_dim) #gym.spaces.Discrete(a_dim)
 
-        self.num_joints = self.env.action_space.shape[0]
-        # self.sinusoidal_func = SinusoidalFunc(self.num_joints)
-        # self.pid_controllers = [PIDController(Kp=1.0,Kd =1.0)for _ in range(self.num_joints)]
-        
-        # self.action_space = self.env.action_space
-        
-        a_dim = 4  # 4-dimensional actions for offset, amplitude, dtheta/dn, dtheta/dt
-        self.action_scale = action_scale  # this is for if we want actions of +/-1 to map to larger/smaller sinusoid parameters
-        assert self.action_scale.shape[0] == a_dim
-
-        self.action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(a_dim,),
-            dtype=np.float32
-        )
-        self.observation_space = self.env.observation_space
-        self.reward_range = self.env.reward_range
-        self.metadata = self.env.metadata
-
-
-        self.desired_angles = []
-        self.torques = []
-        self.current_angles = []
+        self.observation_space = env.observation_space
 
     def reset(self):
-        self.t = 0.0
-        timestep = self.env.reset()
-       
-        # for pid in self.pid_controllers:
-        #     pid.reset()
-        return timestep
-   
-    def get_joint_angles(self):
-        return self.env._env.physics.joints()
-    
-    def step(self, action):#action =[offset, amp, dtheta_dn, dtheta_dt]
-        
+        self.env.reset()
 
-
-        "Test  function with high-level action entering sinusoid to yield torque"
-        action = self.action_scale * action
-
-        torques = sinusoid(action,self.t,self.num_joints)
-       
-        
-        # print(torques)
-        torques = np.clip(torques,-1,1)
-        
-
-        obs, reward, done, info = self.env.step(torques)
-        self.t += self.dt
-
-        
-        self.torques.append(torques)
-        
-        info = {
-                'torques':np.stack(self.torques)}
-        return obs, reward, done, info
-
-    
-
-
-    
-
+    def step(self, action):
+        assert (np.sum(action)==1 and len(action)== len(self.gate_encoding)), "Action must be a valid 1 hot vector"
+        gate_index = np.argmax(action)
+        return self.env.step(np.array(self.gate_encoding[gate_index]))
