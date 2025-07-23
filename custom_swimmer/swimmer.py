@@ -26,6 +26,7 @@ from dm_control.utils import rewards
 from lxml import etree
 import numpy as np
 import ipdb
+import os
 
 _DEFAULT_TIME_LIMIT = 30
 _CONTROL_TIMESTEP = .03  # (Seconds)
@@ -88,7 +89,14 @@ def _make_model(n_bodies):
   if n_bodies < 3:
     raise ValueError('At least 3 bodies required. Received {}'.format(n_bodies))
   # mjcf = etree.fromstring(common.read_model('swimmer.xml'))
-  swimmer_xml_path = "/home/biorobotics/dm_control_project/dm_control/dm_control/suite/swimmer.xml"
+  # swimmer_xml_path = "/home/biorobotics/dm_control_project/dm_control/dm_control/suite/swimmer.xml"
+  # Get the directory containing *this* python file
+  current_dir = os.path.dirname(os.path.abspath(__file__))
+  parent_dir = os.path.dirname(current_dir)
+  # Build the path relative to this file
+  swimmer_xml_path = os.path.join(parent_dir, "dm_control", "dm_control", "suite", "swimmer.xml")
+  print('SWIMMER PATH!!!')
+
   with open(swimmer_xml_path, "rb") as f:
     mjcf = etree.fromstring(f.read())
   head_body = mjcf.find('./worldbody/body')
