@@ -235,9 +235,7 @@ class SwimmerCustomActionWrapper(gym.Wrapper):
         self.metadata = self.env.metadata
 
 
-        self.desired_angles = []
-        self.torques = []
-        self.current_angles = []
+
 
     def reset(self):
         self.t = 0.0
@@ -269,13 +267,7 @@ class SwimmerCustomActionWrapper(gym.Wrapper):
         obs, reward, done, info = self.env.step(torques)
         self.t += self.dt
 
-        self.desired_angles.append(desired_angles)
-        self.current_angles.append(current_angles)
-        self.torques.append(torques)
-        
-        info = {'desired_angles':np.stack(self.desired_angles),
-                'current_angles':np.stack(self.current_angles),
-                'torques':np.stack(self.torques)}
+
         return obs, reward, done, info
 
         "Test  function with high-level action entering sinusoid to yield torque"
@@ -330,10 +322,6 @@ class SwimmerCustomActionWrapperTorque(gym.Wrapper):
         self.metadata = self.env.metadata
 
 
-        self.desired_angles = []
-        self.torques = []
-        self.current_angles = []
-
     def reset(self):
         self.t = 0.0
         timestep = self.env.reset()
@@ -363,10 +351,9 @@ class SwimmerCustomActionWrapperTorque(gym.Wrapper):
         self.t += self.dt
 
         
-        self.torques.append(torques)
+
         
-        info = {
-                'torques':np.stack(self.torques)}
+
         return obs, reward, done, info
 
 
